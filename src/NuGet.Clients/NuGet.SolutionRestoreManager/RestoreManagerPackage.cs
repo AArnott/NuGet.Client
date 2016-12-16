@@ -48,10 +48,6 @@ namespace NuGet.SolutionRestoreManager
         // won't get disconnected.
         private EnvDTE.BuildEvents _buildEvents;
 
-        // keep a reference to initialize task so that it can complete
-        // even after InitializeAsync() is done.
-        private JoinableTask _initializationTask;
-
         protected override async Task InitializeAsync(
             CancellationToken cancellationToken, 
             IProgress<ServiceProgressData> progress)
@@ -59,26 +55,15 @@ namespace NuGet.SolutionRestoreManager
             var componentModel = await GetServiceAsync(typeof(SComponentModel)) as IComponentModel;
             componentModel.DefaultCompositionService.SatisfyImportsOnce(this);
 
-            // Start this initialization task but don't await since it will degrade performance.
-            // will make sure that this piece is always executed on Main thread.
-            // Besides we don't need to wait here to complete since this will only bind to build event which
-            _initializationTask = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+            await ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
             {
-                try
-                {
-                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    var dte = (EnvDTE.DTE)await GetServiceAsync(typeof(SDTE));
-                    _buildEvents = dte.Events.BuildEvents;
-                    _buildEvents.OnBuildBegin += BuildEvents_OnBuildBegin;
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                var dte = (EnvDTE.DTE)await GetServiceAsync(typeof(SDTE));
+                _buildEvents = dte.Events.BuildEvents;
+                _buildEvents.OnBuildBegin += BuildEvents_OnBuildBegin;
 
-                    UserAgent.SetUserAgentString(
-                        new UserAgentStringBuilder().WithVisualStudioSKU(dte.GetFullVsVersionString()));
-                }
-                catch (Exception ex)
-                {
-                    // log error to activity logs.
-                    ExceptionHelper.WriteToActivityLog(ex);
-                }
+                UserAgent.SetUserAgentString(
+                    new UserAgentStringBuilder().WithVisualStudioSKU(dte.GetFullVsVersionString()));
             });
  
             await base.InitializeAsync(cancellationToken, progress);
